@@ -1,0 +1,1260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
+<title>CodeNotes</title>
+<style>
+    :root {
+        --bg: #1e1e1e;
+        --panel: #2d2d2d;
+        --key: #3c3c3c;
+        --key-active: #5a5a5a;
+        --text: #d4d4d4;
+        --muted: #8a8a8a;
+        --accent: #007acc;
+        --danger: #e5534b;
+        --editor-font-size: 16px;
+        --kb-scale: 1;
+        --c-kw: #569cd6;   /* keywords: int bool double ... */
+        --c-str: #6a9955;  /* strings */
+        --c-num: #b5cea8;  /* numbers */
+        --editor-bg: #1e1e1e;  /* editor background */
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    [hidden] { display: none !important; }
+
+    html, body {
+        margin: 0; padding: 0; height: 100%;
+        background: var(--bg); color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        overflow: hidden;
+    }
+    .view {
+        position: fixed; inset: 0;
+        display: flex; flex-direction: column;
+        padding-top: env(safe-area-inset-top);
+    }
+
+    /* Top bars */
+    .bar {
+        display: flex; align-items: center; gap: 8px;
+        padding: 8px 10px; background: var(--panel);
+        border-bottom: 1px solid #111; min-height: 52px;
+    }
+    .bar h1 { font-size: 17px; margin: 0; flex: 1; color: #fff; font-weight: 600;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .icon-btn {
+        background: transparent; border: none; color: #fff;
+        font-size: 20px; min-width: 40px; height: 40px; border-radius: 8px;
+        display: flex; align-items: center; justify-content: center; cursor: pointer;
+        touch-action: manipulation;
+    }
+    .icon-btn:active { background: var(--key); }
+    .icon-btn.danger { color: var(--danger); }
+    .zoom-badge { font-size: 12px; color: var(--muted); min-width: 40px; text-align: right; }
+
+    /* Notes list */
+    .notes { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+    .note-item {
+        background: var(--panel); border-radius: 10px; padding: 12px 14px; cursor: pointer;
+        touch-action: manipulation;
+    }
+    .note-item:active { background: var(--key); }
+    .note-item .t { color: #fff; font-weight: 600; font-size: 15px; margin-bottom: 4px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .note-item .p { color: var(--muted); font-size: 13px; font-family: Consolas, "Courier New", monospace;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .note-item .d { color: var(--muted); font-size: 11px; margin-top: 6px; }
+    .empty { color: var(--muted); text-align: center; margin-top: 80px; padding: 0 30px; line-height: 1.5; }
+    .fab {
+        position: fixed; right: 18px; bottom: calc(18px + env(safe-area-inset-bottom));
+        width: 56px; height: 56px; border-radius: 50%; border: none;
+        background: var(--accent); color: #fff; font-size: 30px; line-height: 1;
+        box-shadow: 0 3px 10px rgba(0,0,0,.5); cursor: pointer; touch-action: manipulation;
+    }
+
+    /* Editor */
+    .editor-wrap { flex: 1; min-height: 0; position: relative; background: var(--editor-bg); }
+    /* Syntax highlighting: a colored copy of the text sits underneath a transparent textarea */
+    .hl {
+        position: absolute; inset: 0; overflow: hidden; pointer-events: none;
+        color: var(--text);
+    }
+    .hl-inner, textarea#editor {
+        padding: 12px 14px; font-family: Consolas, "Courier New", monospace;
+        font-size: var(--editor-font-size); line-height: 1.5;
+        white-space: pre; tab-size: 2; letter-spacing: 0; word-spacing: 0;
+        -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+        font-variant-ligatures: none;
+    }
+    .hl-inner { min-width: 100%; will-change: transform; }
+    .t-kw  { color: var(--c-kw); }
+    .t-str { color: var(--c-str); }
+    .t-num { color: var(--c-num); }
+    .brace-match {
+        background: rgba(255,255,255,.14); border-radius: 3px;
+        text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px;
+        text-decoration-color: rgba(255,255,255,.55);
+    }
+    textarea#editor {
+        position: absolute; inset: 0; width: 100%; height: 100%;
+        background: transparent; color: transparent; border: none; outline: none; resize: none;
+        overflow: auto;
+        touch-action: pan-x pan-y;
+        caret-color: #fff;
+    }
+    textarea#editor::placeholder { color: #757575; }
+    textarea#editor::selection { background: rgba(0,122,204,.45); color: transparent; }
+
+    /* Keyboard */
+    .keyboard {
+        background: var(--panel);
+        padding: 8px 4px calc(10px + env(safe-area-inset-bottom)) 4px;
+        display: flex; flex-direction: column; gap: 6px;
+        user-select: none; -webkit-user-select: none;
+    }
+    .kb-row { display: flex; gap: 4px; justify-content: center; }
+    .key {
+        flex: 1 1 0; min-width: 0;
+        height: calc(44px * var(--kb-scale));
+        background: var(--key); color: #fff; border: none; border-radius: 6px; padding: 0;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: calc(18px * var(--kb-scale));
+        display: flex; align-items: center; justify-content: center;
+        box-shadow: 0 1px 1px rgba(0,0,0,.3);
+        touch-action: manipulation; cursor: pointer;
+        -webkit-user-select: none; user-select: none;
+    }
+    .key:active, .key.down { background: var(--key-active); }
+    .key.wide { flex: 1.5 1 0; font-family: -apple-system, Roboto, sans-serif; font-size: calc(14px * var(--kb-scale)); }
+    .key.space { flex: 3.5 1 0; font-family: -apple-system, Roboto, sans-serif; font-size: calc(14px * var(--kb-scale)); }
+    .key.action { background: #4a4a4a; }
+    .key.primary { background: var(--accent); }
+    .key.on { background: #fff; color: #000; }
+    .key.grid { flex: 0 0 calc((100% - 36px) / 10); }   /* lines up with the 10-key rows */
+    .key.sym { font-size: calc(13px * var(--kb-scale)); }  /* compact one-row symbols */
+    .kb-row.tight { gap: 2px; }
+    .key.inert { opacity: .3; pointer-events: none; }
+    .key.pick { background: var(--accent); outline: 2px solid #fff; }
+
+    .view.swap { z-index: 30; background: var(--bg); }
+    .swap-body { flex: 1; overflow-y: auto; padding: 22px 20px; }
+    .swap-hint { color: #fff; font-size: 18px; line-height: 1.4; margin: 0 0 8px; }
+    .swap-mode { color: var(--muted); font-size: 14px; margin: 0 0 22px; }
+    .btn-done { background: var(--accent); color: #fff; border: none; border-radius: 8px;
+        padding: 10px 18px; font-size: 15px; cursor: pointer; touch-action: manipulation; }
+
+    .switch { position: relative; display: inline-block; width: 46px; height: 26px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .switch span { position: absolute; inset: 0; background: var(--key); border-radius: 26px; transition: .15s; }
+    .switch span::before { content: ""; position: absolute; width: 20px; height: 20px; left: 3px; top: 3px;
+        background: #fff; border-radius: 50%; transition: .15s; }
+    .switch input:checked + span { background: var(--accent); }
+    .switch input:checked + span::before { transform: translateX(20px); }
+    .setting .hint { color: var(--muted); font-size: 12px; margin-top: 4px; line-height: 1.4; }
+
+    .seg { display: flex; background: var(--key); border-radius: 8px; padding: 3px; gap: 3px; }
+    .seg button { flex: 1; background: transparent; border: none; color: var(--text);
+        padding: 10px 6px; border-radius: 6px; font-size: 14px; cursor: pointer; touch-action: manipulation; }
+    .seg button.active { background: var(--accent); color: #fff; }
+
+    /* Settings sheet */
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 10;
+        display: flex; align-items: flex-end; }
+    .sheet {
+        width: 100%; background: var(--panel); border-radius: 16px 16px 0 0;
+        padding: 18px 18px calc(22px + env(safe-area-inset-bottom));
+        max-height: 92%; overflow-y: auto; overscroll-behavior: contain;
+    }
+    .sheet h2 { margin: 0 0 16px; font-size: 17px; color: #fff; display: flex; justify-content: space-between; align-items: center; }
+    .setting { margin-bottom: 20px; }
+    .setting .lbl { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 8px; }
+    .setting .lbl b { color: #fff; }
+    .slider-row { display: flex; align-items: center; gap: 10px; }
+    .slider-row input[type=range] { flex: 1; height: 32px; accent-color: var(--accent); touch-action: pan-y; }
+    .step-btn { background: var(--key); border: none; color: #fff; width: 40px; height: 40px;
+        border-radius: 8px; font-size: 20px; cursor: pointer; touch-action: manipulation; }
+    .step-btn:active { background: var(--key-active); }
+    /* Syntax color pickers */
+    .color-row { margin-bottom: 14px; }
+    .color-row .name { display: flex; justify-content: space-between; align-items: baseline; font-size: 14px; margin-bottom: 8px; }
+    .color-row .name b { color: #fff; font-weight: 600; }
+    .color-row .sample { font-family: Consolas, "Courier New", monospace; font-size: 14px; }
+    .swatches { display: flex; gap: 10px; }
+    .swatch { width: 38px; height: 38px; border-radius: 50%; border: 2px solid transparent;
+        padding: 0; cursor: pointer; touch-action: manipulation; box-shadow: inset 0 0 0 2px var(--panel); }
+    .swatch.active { border-color: #fff; }
+    .btn { background: var(--key); border: none; color: #fff; padding: 12px; border-radius: 8px;
+        font-size: 14px; width: 100%; cursor: pointer; touch-action: manipulation; }
+
+    /* ---- Extra colors: palettes, custom words, editor background, key colors ---- */
+    .swatches.wrap { flex-wrap: wrap; }
+    .swatch.sm { width: 36px; height: 36px; }
+    .swatch.edge:not(.active) { border-color: #5a5a5a; }
+    .swatch.custom { position: relative; overflow: hidden; display: block;
+        background: conic-gradient(#f44, #fd4, #4f4, #4df, #44f, #f4f, #f44); }
+    .swatch.custom input { position: absolute; inset: 0; width: 100%; height: 100%;
+        opacity: 0; border: 0; padding: 0; cursor: pointer; }
+    .lbl.row-c { align-items: center; }
+    .add-btn { width: 36px; height: 36px; border-radius: 50%; border: none; background: var(--accent);
+        color: #fff; font-size: 24px; line-height: 1; cursor: pointer; touch-action: manipulation; }
+    .cw-item { display: flex; align-items: center; gap: 6px; background: var(--key);
+        border-radius: 8px; padding: 4px 4px 4px 12px; margin-bottom: 8px; }
+    .cw-text { flex: 1; min-width: 0; font-family: Consolas, "Courier New", monospace;
+        font-size: 14px; word-break: break-all; cursor: pointer; }
+    .cw-item .icon-btn { font-size: 16px; min-width: 36px; height: 36px; }
+    .cw-form { background: var(--bg); border-radius: 10px; padding: 12px; margin: 10px 0 8px; }
+    .cw-form input[type=text] { width: 100%; background: var(--key); border: 1px solid #555; border-radius: 8px;
+        color: #fff; padding: 11px 12px; font: 15px Consolas, "Courier New", monospace; outline: none; }
+    .cw-form input[type=text]:focus { border-color: var(--accent); }
+    .cw-form .swatches { margin: 12px 0; }
+    .cw-actions { display: flex; gap: 8px; }
+    .cw-actions .btn, .cw-actions .btn-done { flex: 1; width: auto; }
+    .setting .hint.err { color: var(--danger); }
+    .bg-prev { font-family: Consolas, "Courier New", monospace; font-size: 13px;
+        padding: 3px 10px; border-radius: 6px; border: 1px solid #555; }
+    .key.sel { background: #565656; outline: 2px solid var(--accent); outline-offset: -2px; }
+    #view-color .swap-mode { margin-bottom: 12px; }
+    .chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .chip { background: var(--key); color: #fff; border: none; border-radius: 16px; padding: 8px 14px;
+        font-size: 13px; cursor: pointer; touch-action: manipulation; }
+    .ck-sel { color: var(--muted); font-size: 13px; margin-bottom: 14px; min-height: 18px;
+        font-family: Consolas, "Courier New", monospace; word-break: break-all; }
+    #view-color .swatches { margin-bottom: 16px; }
+</style>
+</head>
+<body>
+
+<!-- ===== NOTES LIST ===== -->
+<div class="view" id="view-list">
+    <div class="bar">
+        <h1>CodeNotes</h1>
+        <button class="icon-btn" id="btn-settings-list" aria-label="Settings">⚙</button>
+    </div>
+    <div class="notes" id="notes"></div>
+    <button class="fab" id="btn-new" aria-label="New note">+</button>
+</div>
+
+<!-- ===== EDITOR ===== -->
+<div class="view" id="view-editor" hidden>
+    <div class="bar">
+        <button class="icon-btn" id="btn-back" aria-label="Back">‹</button>
+        <h1 id="editor-title">New note</h1>
+        <span class="zoom-badge" id="zoom-badge">100%</span>
+        <button class="icon-btn" id="btn-settings" aria-label="Settings">⚙</button>
+        <button class="icon-btn danger" id="btn-delete" aria-label="Delete note">🗑</button>
+    </div>
+    <div class="editor-wrap">
+        <div class="hl" aria-hidden="true"><div class="hl-inner" id="hl-inner"></div></div>
+        <textarea id="editor" inputmode="none" wrap="off" autocomplete="off" autocorrect="off"
+                  autocapitalize="off" spellcheck="false" placeholder="Start coding here..."></textarea>
+    </div>
+    <div class="keyboard" id="keyboard"></div>
+</div>
+
+<!-- ===== SWAP KEYS ===== -->
+<div class="view swap" id="view-swap" hidden>
+    <div class="bar">
+        <h1>Swap keys</h1>
+        <button class="btn-done" id="swap-done" type="button">Done</button>
+    </div>
+    <div class="swap-body">
+        <p class="swap-hint">Press two keys to swap their positions. Use !#1 / ABC to swap keys between the front and back page.</p>
+        <p class="swap-mode" id="swap-mode"></p>
+        <button class="btn" id="swap-reset" type="button">Reset this layout</button>
+    </div>
+    <div class="keyboard" id="swap-kb"></div>
+</div>
+
+<!-- ===== KEY COLORS ===== -->
+<div class="view swap" id="view-color" hidden>
+    <div class="bar">
+        <h1>Key colors</h1>
+        <button class="btn-done" id="ck-done" type="button">Done</button>
+    </div>
+    <div class="swap-body">
+        <p class="swap-hint">Tap the keys to recolor, then pick a color.</p>
+        <p class="swap-mode" id="ck-mode"></p>
+        <div class="chips">
+            <button class="chip" type="button" data-ck="letters">Letters</button>
+            <button class="chip" type="button" data-ck="symbols">Symbols</button>
+            <button class="chip" type="button" data-ck="digits">Digits</button>
+            <button class="chip" type="button" data-ck="none">Clear</button>
+        </div>
+        <div class="ck-sel" id="ck-sel"></div>
+        <div class="swatches" id="ck-pal"></div>
+        <button class="btn" id="ck-reset" type="button">Reset key colors</button>
+        <div class="setting"><div class="hint">Use the !#1 / ABC key to reach numbers and more symbols. White is the default.</div></div>
+    </div>
+    <div class="keyboard" id="ck-kb"></div>
+</div>
+
+<!-- ===== SETTINGS ===== -->
+<div class="overlay" id="overlay" hidden>
+    <div class="sheet">
+        <h2>Settings <button class="icon-btn" id="btn-close-settings" aria-label="Close">✕</button></h2>
+
+        <div class="setting">
+            <div class="lbl"><span>Text zoom</span><b id="zoom-label">100%</b></div>
+            <div class="slider-row">
+                <button class="step-btn" id="zoom-minus">−</button>
+                <input type="range" id="zoom-slider" min="50" max="250" step="5" value="100">
+                <button class="step-btn" id="zoom-plus">+</button>
+            </div>
+        </div>
+
+        <div class="setting">
+            <div class="lbl"><span>Keyboard size</span><b id="kb-label">100%</b></div>
+            <div class="slider-row">
+                <button class="step-btn" id="kb-minus">−</button>
+                <input type="range" id="kb-slider" min="70" max="140" step="5" value="100">
+                <button class="step-btn" id="kb-plus">+</button>
+            </div>
+        </div>
+
+        <div class="setting">
+            <div class="lbl row-c"><span>Code colors</span>
+                <button class="add-btn" id="cw-add" type="button" aria-label="Add words">+</button>
+            </div>
+            <div class="color-row">
+                <div class="name"><b>Keywords</b><span class="sample" id="sample-kw">int bool double float</span></div>
+                <div class="swatches" id="sw-kw"></div>
+            </div>
+            <div class="color-row">
+                <div class="name"><b>Strings</b><span class="sample" id="sample-str">"hello"</span></div>
+                <div class="swatches" id="sw-str"></div>
+            </div>
+            <div class="color-row">
+                <div class="name"><b>Numbers</b><span class="sample" id="sample-num">42 3.14</span></div>
+                <div class="swatches" id="sw-num"></div>
+            </div>
+            <div id="cw-list"></div>
+            <div class="cw-form" id="cw-form" hidden>
+                <input type="text" id="cw-input" placeholder="Words, e.g. Console WriteLine" autocomplete="off"
+                       autocapitalize="none" autocorrect="off" spellcheck="false">
+                <div class="hint">Separate words with spaces or commas. Capital letters matter.</div>
+                <div class="hint err" id="cw-msg"></div>
+                <div class="swatches" id="cw-pal"></div>
+                <div class="cw-actions">
+                    <button class="btn" id="cw-cancel" type="button">Cancel</button>
+                    <button class="btn-done" id="cw-save" type="button">Add</button>
+                </div>
+            </div>
+            <div class="hint" id="cw-empty">Tap + to give your own words a color (like Console or Math.Max).</div>
+        </div>
+
+        <div class="setting">
+            <div class="lbl row-c"><span>Editor background</span>
+                <span class="bg-prev" id="bg-prev"><span class="t-kw">int</span> x = <span class="t-num">42</span>;</span>
+            </div>
+            <div class="swatches" id="sw-bg"></div>
+        </div>
+
+        <div class="setting">
+            <div class="lbl"><span>Symbol layout</span></div>
+            <div class="seg">
+                <button id="seg-two" type="button">Two rows</button>
+                <button id="seg-one" type="button">One row (compact)</button>
+            </div>
+        </div>
+
+        <div class="setting">
+            <div class="lbl"><span>Swap key positions</span>
+                <label class="switch"><input type="checkbox" id="swap-toggle"><span></span></label>
+            </div>
+            <div class="hint">Changes only the layout you're using now (two rows or one row).</div>
+        </div>
+
+        <div class="setting">
+            <div class="lbl"><span>Change key colors</span>
+                <label class="switch"><input type="checkbox" id="ck-toggle"><span></span></label>
+            </div>
+            <div class="hint">Pick keys, then pick a color. Works for both layouts (two rows and one row).</div>
+        </div>
+
+        <button class="btn" id="btn-reset">Reset to defaults</button>
+    </div>
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    // ---------- Helpers ----------
+    const $ = (id) => document.getElementById(id);
+    const ed = $('editor');
+
+    // Storage with in-memory fallback (works even if localStorage is blocked)
+    const mem = {};
+    const store = {
+        get(k) { try { const v = localStorage.getItem(k); return v === null ? (mem[k] ?? null) : v; } catch (e) { return mem[k] ?? null; } },
+        set(k, v) { mem[k] = v; try { localStorage.setItem(k, v); } catch (e) {} }
+    };
+
+    // Reliable press handler: fires once per touch/mouse press, keeps textarea selection
+    function press(el, fn) {
+        let last = 0;
+        const handler = (e) => {
+            e.preventDefault();
+            const now = Date.now();
+            if (e.type !== 'pointerdown' && now - last < 500) return;
+            last = now;
+            fn(e);
+        };
+        if (window.PointerEvent) {
+            el.addEventListener('pointerdown', handler);
+        } else {
+            el.addEventListener('touchstart', handler, { passive: false });
+            el.addEventListener('mousedown', handler);
+        }
+        el.addEventListener('click', (e) => e.preventDefault());
+    }
+
+    // ---------- Settings: zoom ----------
+    let zoomPct = parseInt(store.get('cn_zoom'), 10) || 100;
+    let kbPct = parseInt(store.get('cn_kb'), 10) || 100;
+    const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+    function applyZoom(pct, save) {
+        zoomPct = clamp(Math.round(pct), 50, 250);
+        document.documentElement.style.setProperty('--editor-font-size', (16 * zoomPct / 100) + 'px');
+        $('zoom-slider').value = zoomPct;
+        $('zoom-label').textContent = zoomPct + '%';
+        $('zoom-badge').textContent = zoomPct + '%';
+        if (save !== false) store.set('cn_zoom', String(zoomPct));
+        scheduleRender();
+    }
+    function applyKb(pct, save) {
+        kbPct = clamp(Math.round(pct), 70, 140);
+        document.documentElement.style.setProperty('--kb-scale', kbPct / 100);
+        $('kb-slider').value = kbPct;
+        $('kb-label').textContent = kbPct + '%';
+        if (save !== false) store.set('cn_kb', String(kbPct));
+    }
+
+    $('zoom-slider').addEventListener('input', (e) => applyZoom(+e.target.value));
+    $('zoom-slider').addEventListener('change', (e) => applyZoom(+e.target.value));
+    $('zoom-minus').addEventListener('click', () => applyZoom(zoomPct - 10));
+    $('zoom-plus').addEventListener('click', () => applyZoom(zoomPct + 10));
+    $('kb-slider').addEventListener('input', (e) => applyKb(+e.target.value));
+    $('kb-slider').addEventListener('change', (e) => applyKb(+e.target.value));
+    $('kb-minus').addEventListener('click', () => applyKb(kbPct - 5));
+    $('kb-plus').addEventListener('click', () => applyKb(kbPct + 5));
+    $('btn-reset').addEventListener('click', () => { applyZoom(100); applyKb(100); setSymLayout('two'); setColors(COLOR_DEFAULTS); setBg(BG_DEFAULT); });
+
+    const openSettings = () => { $('overlay').hidden = false; };
+    const closeSettings = () => { $('overlay').hidden = true; };
+    $('btn-settings').addEventListener('click', openSettings);
+    $('btn-settings-list').addEventListener('click', openSettings);
+    $('btn-close-settings').addEventListener('click', closeSettings);
+    $('overlay').addEventListener('click', (e) => { if (e.target === $('overlay')) closeSettings(); });
+
+    // Pinch-to-zoom on the editor
+    let pinchStartDist = 0, pinchStartPct = 100;
+    const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    ed.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 2) { pinchStartDist = dist(e.touches); pinchStartPct = zoomPct; }
+    }, { passive: true });
+    ed.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 2 && pinchStartDist) {
+            e.preventDefault();
+            applyZoom(pinchStartPct * dist(e.touches) / pinchStartDist, false);
+        }
+    }, { passive: false });
+    ed.addEventListener('touchend', (e) => {
+        if (e.touches.length < 2 && pinchStartDist) { pinchStartDist = 0; store.set('cn_zoom', String(zoomPct)); }
+    });
+
+    // ---------- Syntax highlighting ----------
+    const hlInner = $('hl-inner');
+
+    // Color choices offered in settings
+    const COLOR_CHOICES = [
+        { id: 'blue',   name: 'Blue',        hex: '#569cd6' },
+        { id: 'lgreen', name: 'Light green', hex: '#b5cea8' },
+        { id: 'green',  name: 'Green',       hex: '#6a9955' },
+        { id: 'orange', name: 'Orange',      hex: '#cc7832' },
+        { id: 'steel',  name: 'Steel blue',  hex: '#6897bb' }
+    ];
+    const COLOR_DEFAULTS = { kw: 'blue', str: 'green', num: 'lgreen' };
+    const hexOf = (id) => (COLOR_CHOICES.find(c => c.id === id) || {}).hex;
+
+    function loadColors() {
+        const out = Object.assign({}, COLOR_DEFAULTS);
+        try {
+            const saved = JSON.parse(store.get('cn_colors') || 'null');
+            if (saved) Object.keys(out).forEach(k => { if (hexOf(saved[k])) out[k] = saved[k]; });
+        } catch (e) {}
+        return out;
+    }
+    let colors = loadColors();
+
+    function setColors(next, save) {
+        colors = Object.assign({}, COLOR_DEFAULTS, next);
+        const root = document.documentElement.style;
+        ['kw', 'str', 'num'].forEach(k => {
+            const hex = hexOf(colors[k]);
+            root.setProperty('--c-' + k, hex);
+            $('sample-' + k).style.color = hex;
+            $('sw-' + k).querySelectorAll('.swatch').forEach(b => {
+                const on = b.dataset.id === colors[k];
+                b.classList.toggle('active', on);
+                b.setAttribute('aria-pressed', on ? 'true' : 'false');
+            });
+        });
+        if (save !== false) store.set('cn_colors', JSON.stringify(colors));
+    }
+
+    ['kw', 'str', 'num'].forEach(k => {
+        COLOR_CHOICES.forEach(c => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'swatch';
+            b.dataset.id = c.id;
+            b.style.background = c.hex;
+            b.setAttribute('aria-label', c.name);
+            b.addEventListener('click', () => setColors(Object.assign({}, colors, { [k]: c.id })));
+            $('sw-' + k).appendChild(b);
+        });
+    });
+
+    // ---------- Extra colors: palette, custom words, editor background ----------
+    const HEX = /^#[0-9a-f]{6}$/i;
+    const PALETTE = [
+        { name: 'White', hex: '#ffffff' },       { name: 'Light blue', hex: '#9cdcfe' },
+        { name: 'Blue', hex: '#569cd6' },        { name: 'Teal', hex: '#4ec9b0' },
+        { name: 'Light green', hex: '#b5cea8' }, { name: 'Green', hex: '#6a9955' },
+        { name: 'Yellow', hex: '#dcdcaa' },      { name: 'Orange', hex: '#cc7832' },
+        { name: 'Red', hex: '#f07178' },         { name: 'Pink', hex: '#c586c0' },
+        { name: 'Gray', hex: '#9e9e9e' }
+    ];
+    const BG_DEFAULT = '#1e1e1e';
+    const BG_CHOICES = [BG_DEFAULT, '#242424', '#2a2a2a', '#303030', '#383838', '#424242']
+        .map((hex, i) => ({ name: i ? 'Gray ' + i : 'Default', hex }));
+    const KEY_DEFAULT = '#ffffff';
+    const readJSON = (k, fb) => { try { const v = JSON.parse(store.get(k) || 'null'); return v == null ? fb : v; } catch (e) { return fb; } };
+
+    // A row of color circles, plus a rainbow circle that opens the phone's own color picker
+    function makePalette(box, items, onPick, edge) {
+        box.innerHTML = '';
+        box.classList.add('wrap');
+        const btns = items.map(p => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'swatch sm' + (edge ? ' edge' : '');
+            b.dataset.hex = p.hex;
+            b.style.background = p.hex;
+            b.setAttribute('aria-label', p.name);
+            b.addEventListener('click', () => onPick(p.hex));
+            box.appendChild(b);
+            return b;
+        });
+        const cu = document.createElement('label');
+        cu.className = 'swatch sm custom';
+        cu.title = 'Custom color';
+        const inp = document.createElement('input');
+        inp.type = 'color';
+        inp.value = '#9cdcfe';
+        inp.addEventListener('input', () => onPick(inp.value));
+        cu.appendChild(inp);
+        box.appendChild(cu);
+        return {
+            mark(hex) {
+                const h = (hex || '').toLowerCase();
+                let hit = false;
+                btns.forEach(b => { const on = b.dataset.hex === h; if (on) hit = true; b.classList.toggle('active', on); });
+                const custom = !!h && !hit;
+                cu.classList.toggle('active', custom);
+                cu.style.background = custom ? h : '';
+                if (custom) inp.value = h;
+            }
+        };
+    }
+
+    // --- Custom words (each group = some words + one color) ---
+    let customWords = readJSON('cn_words', [])
+        .filter(g => g && typeof g.id === 'string' && Array.isArray(g.words) && HEX.test(g.color))
+        .map(g => ({ id: g.id, color: g.color.toLowerCase(), words: g.words.filter(w => typeof w === 'string' && w) }))
+        .filter(g => g.words.length);
+    let wordMap = new Map();     // plain identifiers  -> color
+    let phraseMap = new Map();   // things with symbols (Console.WriteLine, ->, std::cout) -> color
+    const IDENT = /^[A-Za-z_$][\w$]*$/;
+
+    function rebuildCustom() {
+        wordMap = new Map();
+        phraseMap = new Map();
+        customWords.forEach(g => g.words.forEach(w => (IDENT.test(w) ? wordMap : phraseMap).set(w, g.color)));
+        TOKEN = buildToken(Array.from(phraseMap.keys()));
+        lastHtml = null;
+        scheduleRender();
+    }
+
+    function renderWordList() {
+        const box = $('cw-list');
+        box.innerHTML = '';
+        customWords.forEach(g => {
+            const it = document.createElement('div');
+            it.className = 'cw-item';
+            const t = document.createElement('span');
+            t.className = 'cw-text';
+            t.textContent = g.words.join(' ');
+            t.style.color = g.color;
+            t.addEventListener('click', () => openWordForm(g));
+            const mk = (label, cls, fn) => {
+                const b = document.createElement('button');
+                b.type = 'button'; b.className = 'icon-btn ' + cls; b.textContent = label;
+                b.addEventListener('click', fn);
+                return b;
+            };
+            it.append(t,
+                mk('✎', '', () => openWordForm(g)),
+                mk('✕', 'danger', () => {
+                    if (confirm('Remove these words?')) { customWords = customWords.filter(x => x !== g); saveWords(); }
+                }));
+            box.appendChild(it);
+        });
+        $('cw-empty').hidden = customWords.length > 0 || !$('cw-form').hidden;
+    }
+
+    function saveWords() {
+        store.set('cn_words', JSON.stringify(customWords));
+        rebuildCustom();
+        renderWordList();
+    }
+
+    let cwEdit = null, cwColor = '#9cdcfe';
+    const cwPal = makePalette($('cw-pal'), PALETTE, (hex) => { cwColor = hex.toLowerCase(); paintWordForm(); });
+    function paintWordForm() { $('cw-input').style.color = cwColor; cwPal.mark(cwColor); }
+
+    function openWordForm(g) {
+        cwEdit = g || null;
+        $('cw-input').value = g ? g.words.join(' ') : '';
+        cwColor = g ? g.color : '#9cdcfe';
+        $('cw-save').textContent = g ? 'Save' : 'Add';
+        $('cw-msg').textContent = '';
+        $('cw-form').hidden = false;
+        paintWordForm();
+        renderWordList();
+        $('cw-input').focus();
+        setTimeout(() => $('cw-form').scrollIntoView({ block: 'nearest' }), 300);
+    }
+    function closeWordForm() {
+        $('cw-input').blur();
+        $('cw-form').hidden = true;
+        cwEdit = null;
+        renderWordList();
+    }
+    function saveWordForm() {
+        const words = Array.from(new Set($('cw-input').value.split(/[\s,]+/).filter(Boolean)));
+        if (!words.length) { $('cw-msg').textContent = 'Type at least one word.'; return; }
+        if (words.some(w => /[{}]/.test(w))) { $('cw-msg').textContent = 'Curly brackets are not allowed in words.'; return; }
+        // a word only ever has one color: the newest assignment wins
+        customWords.forEach(g => { if (g !== cwEdit) g.words = g.words.filter(w => !words.includes(w)); });
+        customWords = customWords.filter(g => g.words.length || g === cwEdit);
+        if (cwEdit) { cwEdit.words = words; cwEdit.color = cwColor; }
+        else customWords.push({ id: uid(), words, color: cwColor });
+        closeWordForm();
+        saveWords();
+    }
+    $('cw-add').addEventListener('click', () => openWordForm());
+    $('cw-cancel').addEventListener('click', closeWordForm);
+    $('cw-save').addEventListener('click', saveWordForm);
+    $('cw-input').addEventListener('input', () => { $('cw-msg').textContent = ''; });
+    $('cw-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveWordForm(); } });
+
+    // --- Editor background ---
+    const bgPal = makePalette($('sw-bg'), BG_CHOICES, (hex) => setBg(hex), true);
+    function setBg(hex, save) {
+        const bg = HEX.test(hex) ? hex.toLowerCase() : BG_DEFAULT;
+        document.documentElement.style.setProperty('--editor-bg', bg);
+        $('bg-prev').style.background = bg;
+        bgPal.mark(bg);
+        if (save !== false) store.set('cn_bg', bg);
+    }
+
+    // --- Key colors (stored per character, so they follow the key and work in every layout) ---
+    let keyColors = {};
+    (function () {
+        const s = readJSON('cn_keycolors', {});
+        Object.keys(s).forEach(k => { if (k.length === 1 && HEX.test(s[k])) keyColors[k] = s[k].toLowerCase(); });
+    })();
+    const paintKey = (b, ch) => { b.style.color = keyColors[ch] || ''; };
+
+    // Words that get the "keyword" color (types and declarations)
+    const KEYWORDS = new Set([
+        'int', 'bool', 'boolean', 'double', 'float', 'char', 'long', 'short', 'byte', 'void',
+        'string', 'String', 'auto', 'var', 'let', 'const', 'unsigned', 'signed', 'size_t',
+        'struct', 'class', 'enum'
+    ]);
+    const isKeyword = (w) => KEYWORDS.has(w) || /^u?int(8|16|32|64)_t$/.test(w);
+
+    const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\\/]/g, '\\$&');
+    function buildToken(phrases) {
+        const ph = phrases.length
+            ? phrases.slice().sort((a, b) => b.length - a.length)
+                .map(p => reEsc(p) + (/[\w$]$/.test(p) ? '(?![\\w$])' : '')).join('|')
+            : '(?!)';
+        // 1 comment | 2 string | 3 custom phrase | 4 word | 5 number | 6 curly bracket
+        return new RegExp(
+            '(\\/\\/[^\\n]*|\\/\\*[\\s\\S]*?(?:\\*\\/|$)|#[ \\t][^\\n]*)' +
+            '|("(?:\\\\.|[^"\\\\\\n])*"?|\'(?:\\\\.|[^\'\\\\\\n])*\'?|`(?:\\\\[\\s\\S]|[^`\\\\])*`?)' +
+            '|(' + ph + ')' +
+            '|([A-Za-z_$][\\w$]*)' +
+            '|(0[xX][0-9a-fA-F]+[uUlL]*|0[bB][01]+|(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?[fFlLuU]*)' +
+            '|([{}])', 'g');
+    }
+    let TOKEN = buildToken([]);
+
+    const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    let lastHtml = null;
+    function render() {
+        const text = ed.value;
+        const toks = [];
+        const stack = [];
+        const pairs = new Map();      // opening { index -> closing } index
+        const isBrace = new Set();    // real brackets only (not inside strings/comments)
+
+        TOKEN.lastIndex = 0;
+        let m;
+        while ((m = TOKEN.exec(text)) !== null) {
+            if (m[0] === '') { TOKEN.lastIndex++; continue; }
+            const s = m.index, e = s + m[0].length;
+            if (m[1]) continue;                                   // comment: plain
+            else if (m[2]) toks.push({ s, e, c: 't-str' });
+            else if (m[3]) toks.push({ s, e, c: 't-cw', color: phraseMap.get(m[3]) });
+            else if (m[4]) {
+                const cw = wordMap.get(m[4]);          // your own words win over the built-in keywords
+                if (cw) toks.push({ s, e, c: 't-cw', color: cw });
+                else if (isKeyword(m[4])) toks.push({ s, e, c: 't-kw' });
+            }
+            else if (m[5]) toks.push({ s, e, c: 't-num' });
+            else if (m[6]) {
+                isBrace.add(s);
+                if (m[6] === '{') stack.push(s);
+                else if (stack.length) pairs.set(stack.pop(), s);
+            }
+        }
+
+        // Which closing } to mark: caret right before or right after a {
+        let mark = -1;
+        if (ed.selectionStart === ed.selectionEnd) {
+            const p = ed.selectionStart;
+            let open = -1;
+            if (text[p] === '{' && isBrace.has(p)) open = p;
+            else if (p > 0 && text[p - 1] === '{' && isBrace.has(p - 1)) open = p - 1;
+            if (open >= 0 && pairs.has(open)) mark = pairs.get(open);
+        }
+
+        let html = '', last = 0;
+        const all = toks.slice();
+        if (mark >= 0) all.push({ s: mark, e: mark + 1, c: 'brace-match' });
+        all.sort((a, b) => a.s - b.s);
+        all.forEach(t => {
+            html += esc(text.slice(last, t.s)) + '<span class="' + t.c + '"' + (t.color ? ' style="color:' + t.color + '"' : '') + '>' + esc(text.slice(t.s, t.e)) + '</span>';
+            last = t.e;
+        });
+        html += esc(text.slice(last)) + '\n';
+
+        if (html !== lastHtml) { hlInner.innerHTML = html; lastHtml = html; }
+        syncScroll();
+    }
+
+    function syncScroll() {
+        hlInner.style.transform = 'translate(' + (-ed.scrollLeft) + 'px,' + (-ed.scrollTop) + 'px)';
+    }
+
+    let renderQueued = false;
+    function scheduleRender() {
+        if (renderQueued) return;
+        renderQueued = true;
+        requestAnimationFrame(() => { renderQueued = false; render(); });
+    }
+
+    ed.addEventListener('scroll', syncScroll, { passive: true });
+    ['click', 'keyup', 'pointerup', 'touchend', 'select', 'focus'].forEach(ev => ed.addEventListener(ev, scheduleRender));
+    document.addEventListener('selectionchange', () => { if (document.activeElement === ed) scheduleRender(); });
+
+    // ---------- Notes data ----------
+    let notes = [];
+    try { notes = JSON.parse(store.get('cn_notes') || '[]'); } catch (e) { notes = []; }
+    let currentId = null;
+
+    const saveNotes = () => store.set('cn_notes', JSON.stringify(notes));
+    const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const titleOf = (n) => (n.text.split('\n').find(l => l.trim()) || 'Untitled').trim();
+
+    function renderList() {
+        const box = $('notes');
+        box.innerHTML = '';
+        if (!notes.length) {
+            const d = document.createElement('div');
+            d.className = 'empty';
+            d.textContent = 'No notes yet. Tap + to write your first one.';
+            box.appendChild(d);
+            return;
+        }
+        notes.slice().sort((a, b) => b.updated - a.updated).forEach(n => {
+            const lines = n.text.split('\n').filter(l => l.trim());
+            const item = document.createElement('div');
+            item.className = 'note-item';
+            const t = document.createElement('div'); t.className = 't'; t.textContent = titleOf(n);
+            const p = document.createElement('div'); p.className = 'p'; p.textContent = lines[1] || ' ';
+            const d = document.createElement('div'); d.className = 'd'; d.textContent = new Date(n.updated).toLocaleString();
+            item.append(t, p, d);
+            item.addEventListener('click', () => openNote(n.id));
+            box.appendChild(item);
+        });
+    }
+
+    function showView(name) {
+        $('view-list').hidden = name !== 'list';
+        $('view-editor').hidden = name !== 'editor';
+    }
+
+    function openNote(id) {
+        currentId = id;
+        const n = notes.find(x => x.id === id);
+        ed.value = n ? n.text : '';
+        $('editor-title').textContent = n ? titleOf(n) : 'New note';
+        showView('editor');
+        render();
+        showLayout('main');
+        ed.focus();
+        const end = ed.value.length;
+        ed.setSelectionRange(end, end);
+        ed.scrollTop = ed.scrollHeight;
+    }
+
+    function newNote() {
+        const n = { id: uid(), text: '', updated: Date.now() };
+        notes.push(n);
+        openNote(n.id);
+    }
+
+    function persistCurrent() {
+        render();
+        const n = notes.find(x => x.id === currentId);
+        if (!n) return;
+        n.text = ed.value;
+        n.updated = Date.now();
+        $('editor-title').textContent = titleOf(n);
+        saveNotes();
+    }
+
+    function closeEditor() {
+        const n = notes.find(x => x.id === currentId);
+        if (n && !ed.value.trim()) notes = notes.filter(x => x.id !== currentId); // drop empty notes
+        else persistCurrent();
+        saveNotes();
+        currentId = null;
+        renderList();
+        showView('list');
+    }
+
+    $('btn-new').addEventListener('click', newNote);
+    $('btn-back').addEventListener('click', closeEditor);
+    $('btn-delete').addEventListener('click', () => {
+        if (confirm('Delete this note?')) {
+            notes = notes.filter(x => x.id !== currentId);
+            saveNotes();
+            currentId = null;
+            renderList();
+            showView('list');
+        }
+    });
+    // Also saves if the hardware/native keyboard is ever used
+    ed.addEventListener('input', persistCurrent);
+
+    // ---------- Custom keyboard ----------
+    let shift = false;
+    const letterKeys = [];
+
+    function afterEdit() {
+        persistCurrent();
+        if (ed.selectionEnd === ed.value.length) {
+            ed.scrollTop = ed.scrollHeight;
+            ed.scrollLeft = 0;
+        } else {
+            // keep caret visible when editing in the middle
+            ed.blur(); ed.focus();
+        }
+    }
+
+    function insert(text) {
+        const s = ed.selectionStart, e = ed.selectionEnd;
+        ed.setRangeText(text, s, e, 'end');
+        afterEdit();
+    }
+
+    function backspace() {
+        const s = ed.selectionStart, e = ed.selectionEnd;
+        if (s !== e) ed.setRangeText('', s, e, 'end');
+        else if (s > 0) ed.setRangeText('', s - 1, e, 'end');
+        else return;
+        afterEdit();
+    }
+
+    function enter() {
+        const s = ed.selectionStart;
+        const lineStart = ed.value.lastIndexOf('\n', s - 1) + 1;
+        const before = ed.value.slice(lineStart, s);
+        let indent = (before.match(/^[ \t]*/) || [''])[0];
+        if (/[{\[(:]\s*$/.test(before)) indent += '  ';
+        insert('\n' + indent);
+    }
+
+    function moveCaret(delta) {
+        const p = clamp(ed.selectionStart + delta, 0, ed.value.length);
+        ed.focus();
+        ed.setSelectionRange(p, p);
+        scheduleRender();
+    }
+
+    function setShift(on) {
+        shift = on;
+        letterKeys.forEach(k => { k.el.textContent = on ? k.ch.toUpperCase() : k.ch; });
+        const sk = document.getElementById('key-shift');
+        if (sk) sk.classList.toggle('on', on);
+    }
+
+    const kb = $('keyboard');
+
+    function specialKey(label, cls, fn, id) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'key ' + cls;
+        b.textContent = label;
+        if (id) b.id = id;
+        press(b, fn);
+        return b;
+    }
+
+    // Hold-to-repeat backspace
+    function repeatKey(label) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'key wide action';
+        b.textContent = label;
+        let t1, t2;
+        const stop = () => { clearTimeout(t1); clearInterval(t2); b.classList.remove('down'); };
+        const start = (e) => {
+            e.preventDefault();
+            stop();
+            b.classList.add('down');
+            backspace();
+            t1 = setTimeout(() => { t2 = setInterval(backspace, 55); }, 400);
+        };
+        if (window.PointerEvent) {
+            b.addEventListener('pointerdown', start);
+            ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => b.addEventListener(ev, stop));
+        } else {
+            b.addEventListener('touchstart', start, { passive: false });
+            b.addEventListener('mousedown', start);
+            ['touchend', 'touchcancel', 'mouseup', 'mouseleave'].forEach(ev => b.addEventListener(ev, stop));
+        }
+        b.addEventListener('click', (e) => e.preventDefault());
+        return b;
+    }
+
+    // items can be strings (character keys) or ready-made elements.
+    function row(items, cls, centered) {
+        const r = document.createElement('div');
+        r.className = 'kb-row' + (cls === 'sym' ? ' tight' : '');
+        if (centered) r.style.justifyContent = 'center';
+        items.forEach(i => r.appendChild(i));
+        return r;
+    }
+    const chars = (s) => s.split('');
+
+    // ----- Key positions (one grid per layout, so swaps only affect the layout you're editing) -----
+    // Back page (opened with the !#1 key). Each layout gets its own copy at the end of its grid.
+    const NUM_ROWS = [
+        chars('1234567890'),
+        ['@', '#', '$', '_', '&', '^', '~', '|', '\\', '?'],
+        ['<', '>', '`', '€', '£', '¥', '°', '©']
+    ];
+    const backRows = () => NUM_ROWS.map(r => r.slice());
+    const DEFAULTS = {
+        two: [
+            ['"', "'", ',', '.', ';', ':', '+', '-', '=', '/'],
+            ['[', ']', '(', ')', '{', '}', '*', '!', '%'],
+            chars('qwertyuiop'), chars('asdfghjkl'), chars('zxcvbnm')
+        ].concat(backRows()),
+        one: [
+            ['"', "'", ',', '.', ';', ':', '+', '-', '=', '%', '/', '[', ']', '(', ')', '{', '}', '*', '!'],
+            chars('qwertyuiop'), chars('asdfghjkl'), chars('zxcvbnm')
+        ].concat(backRows())
+    };
+    const clone = (o) => JSON.parse(JSON.stringify(o));
+    const sig = (g) => g.map(r => r.length).join(',') + '|' + g.flat().sort().join('');
+
+    function loadLayouts() {
+        const out = clone(DEFAULTS);
+        try {
+            const saved = JSON.parse(store.get('cn_layouts') || 'null');
+            if (saved) ['two', 'one'].forEach(m => {
+                // only accept a saved layout if it contains exactly the same keys in the same row sizes
+                let s = saved[m];
+                // layouts saved by older versions only hold the front page: add the default back page
+                if (Array.isArray(s) && s.length === DEFAULTS[m].length - 3) s = s.concat(backRows());
+                if (s && sig(s) === sig(DEFAULTS[m])) out[m] = s;
+            });
+        } catch (e) {}
+        return out;
+    }
+    let layoutData = loadLayouts();
+    const saveLayouts = () => store.set('cn_layouts', JSON.stringify(layoutData));
+
+    // Symbol layout preference: 'two' (default) or 'one' (compact)
+    let symLayout = store.get('cn_symlayout') === 'one' ? 'one' : 'two';
+    let currentLayout = 'main';
+
+    // ----- Swap editor -----
+    // A key can be swapped with any other key, on the same page or on the other one.
+    let pick = null;
+    let swapPage = 'main';
+
+    // !#1 / ABC: switch page in whichever mode the keyboard is built for
+    function pageGo(mode, page) {
+        if (mode === 'color') setCkPage(page);
+        else if (mode === 'swap') setSwapPage(page);
+        else showLayout(page);
+    }
+    function setSwapPage(p) { swapPage = p; renderSwap(); }
+
+    function swapPick(r, c) {
+        if (!pick) {
+            pick = { r, c };
+        } else {
+            if (pick.r !== r || pick.c !== c) {
+                const g = layoutData[symLayout];
+                const tmp = g[pick.r][pick.c];
+                g[pick.r][pick.c] = g[r][c];
+                g[r][c] = tmp;
+                saveLayouts();
+            }
+            pick = null;
+        }
+        renderSwap();
+    }
+
+    function renderSwap() {
+        const box = $('swap-kb');
+        box.innerHTML = '';
+        (swapPage === 'main' ? buildMain('swap') : buildNum('swap')).forEach(r => box.appendChild(r));
+        $('swap-mode').textContent = 'Editing: ' + (symLayout === 'two' ? 'Two rows' : 'One row (compact)') + ' layout, '
+            + (swapPage === 'main' ? 'front page' : 'back page (!#1)')
+            + (pick ? '. Picked: ' + layoutData[symLayout][pick.r][pick.c] : '');
+    }
+
+    function openSwap() {
+        pick = null;
+        swapPage = 'main';
+        closeSettings();
+        $('view-swap').hidden = false;
+        renderSwap();
+    }
+
+    function closeSwap() {
+        pick = null;
+        $('view-swap').hidden = true;
+        $('swap-toggle').checked = false;
+        showLayout(currentLayout);
+    }
+
+    $('swap-toggle').addEventListener('change', (e) => { if (e.target.checked) openSwap(); });
+    $('swap-done').addEventListener('click', closeSwap);
+    $('swap-reset').addEventListener('click', () => {
+        if (confirm('Reset key positions for this layout (front and back page)?')) {
+            layoutData[symLayout] = clone(DEFAULTS[symLayout]);
+            saveLayouts();
+            pick = null;
+            renderSwap();
+        }
+    });
+
+    // ----- Key color editor (one color per character, shared by both layouts) -----
+    let ckPage = 'main';
+    const ckSel = new Set();
+    const ckAll = () => new Set(DEFAULTS.two.flat().concat(NUM_ROWS.flat()));
+    const ckGroups = { letters: /^[a-z]$/, digits: /^[0-9]$/, symbols: /^[^a-z0-9]$/ };
+    const ckPal = makePalette($('ck-pal'), PALETTE, applyKeyColor);
+
+    function applyKeyColor(hex) {
+        if (!ckSel.size) { $('ck-sel').textContent = 'Tap one or more keys first, then pick a color.'; return; }
+        hex = hex.toLowerCase();
+        ckSel.forEach(ch => { if (hex === KEY_DEFAULT) delete keyColors[ch]; else keyColors[ch] = hex; });
+        store.set('cn_keycolors', JSON.stringify(keyColors));
+        renderColor();
+    }
+    function toggleSel(ch) {
+        if (ckSel.has(ch)) ckSel.delete(ch); else ckSel.add(ch);
+        renderColor();
+    }
+    function renderColor() {
+        const box = $('ck-kb');
+        box.innerHTML = '';
+        (ckPage === 'main' ? buildMain('color') : buildNum('color')).forEach(r => box.appendChild(r));
+        $('ck-mode').textContent = (symLayout === 'two' ? 'Two rows' : 'One row (compact)') + ' layout. Colors apply to both layouts.';
+        $('ck-sel').textContent = ckSel.size ? 'Selected (' + ckSel.size + '): ' + Array.from(ckSel).join(' ') : 'No keys selected yet.';
+        const cols = new Set(Array.from(ckSel).map(ch => keyColors[ch] || KEY_DEFAULT));
+        ckPal.mark(cols.size === 1 ? Array.from(cols)[0] : '');
+    }
+    function setCkPage(p) { ckPage = p; renderColor(); }
+    function openColor() {
+        ckSel.clear();
+        ckPage = 'main';
+        closeSettings();
+        $('view-color').hidden = false;
+        renderColor();
+    }
+    function closeColor() {
+        ckSel.clear();
+        $('view-color').hidden = true;
+        $('ck-toggle').checked = false;
+        showLayout(currentLayout);
+    }
+    $('ck-toggle').addEventListener('change', (e) => { if (e.target.checked) openColor(); });
+    $('ck-done').addEventListener('click', closeColor);
+    $('ck-reset').addEventListener('click', () => {
+        if (confirm('Reset all key colors?')) { keyColors = {}; store.set('cn_keycolors', '{}'); renderColor(); }
+    });
+    document.querySelectorAll('[data-ck]').forEach(b => b.addEventListener('click', () => {
+        ckSel.clear();
+        if (b.dataset.ck !== 'none') ckAll().forEach(ch => { if (ckGroups[b.dataset.ck].test(ch)) ckSel.add(ch); });
+        renderColor();
+    }));
+
+    // ----- Building the keyboard -----
+    // mode: 'type' (normal), 'swap' (swap editor) or 'color' (key color editor)
+    function keyFor(ch, cls, r, c, mode) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'key' + (cls ? ' ' + cls : '');
+        b.textContent = ch;
+        paintKey(b, ch);
+        if (mode === 'swap') {
+            if (pick && pick.r === r && pick.c === c) b.classList.add('pick');
+            press(b, () => swapPick(r, c));
+        } else if (mode === 'color') {
+            if (ckSel.has(ch)) b.classList.add('sel');
+            press(b, () => toggleSel(ch));
+        } else {
+            const isLetter = /^[a-z]$/.test(ch);
+            if (isLetter) letterKeys.push({ el: b, ch });
+            press(b, () => {
+                insert(isLetter && shift ? ch.toUpperCase() : ch);
+                if (isLetter && shift) setShift(false);
+            });
+        }
+        return b;
+    }
+
+    function buildMain(mode) {
+        mode = mode || 'type';
+        const typing = mode === 'type';
+        if (typing) { letterKeys.length = 0; shift = false; }
+        const g = layoutData[symLayout];
+        // in swap / color mode, function keys are shown but inactive
+        const sp = (label, cls, fn, id) => typing
+            ? specialKey(label, cls, fn, id)
+            : specialKey(label, cls + ' inert', () => {});
+        const bksp = () => typing ? repeatKey('⌫') : specialKey('⌫', 'wide action inert', () => {});
+        const mk = (r, cls, centered) => {
+            const el = row(g[r].map((ch, c) => keyFor(ch, cls, r, c, mode)), null, centered);
+            if (cls === 'sym') el.classList.add('tight');
+            return el;
+        };
+        const rows = [];
+
+        if (symLayout === 'one') {
+            rows.push(mk(0, 'sym'));                    // all symbols squeezed into one row
+            rows.push(mk(1));
+            rows.push(mk(2, 'grid', true));
+            rows.push(row([
+                sp('⇧', 'wide action', () => setShift(!shift), 'key-shift'),
+                ...g[3].map((ch, c) => keyFor(ch, '', 3, c, mode)),
+                bksp()
+            ]));
+        } else {
+            rows.push(mk(0));                           // symbol row 1
+            rows.push(mk(1, 'grid', true));             // symbol row 2
+            rows.push(mk(2));
+            rows.push(mk(3, 'grid', true));
+            rows.push(row([
+                sp('⇧', 'wide action', () => setShift(!shift), 'key-shift'),
+                ...g[4].map((ch, c) => keyFor(ch, '', 4, c, mode)),
+                bksp()
+            ]));
+        }
+
+        rows.push(row([
+            specialKey('!#1', 'wide action', () => pageGo(mode, 'num')),
+            sp('Space', 'space action', () => insert(' ')),
+            sp('◀', 'action', () => moveCaret(-1)),
+            sp('▶', 'action', () => moveCaret(1)),
+            sp('Enter', 'wide primary', enter)
+        ]));
+        return rows;
+    }
+
+    function buildNum(mode) {
+        mode = mode || 'type';
+        const typing = mode === 'type';
+        if (typing) { letterKeys.length = 0; shift = false; }
+        const g = layoutData[symLayout];
+        const off = g.length - 3;                        // back page = last 3 rows of the grid
+        const sp = (label, cls, fn) => typing
+            ? specialKey(label, cls, fn)
+            : specialKey(label, cls + ' inert', () => {});
+        const keys = (i, cls) => row(g[off + i].map((ch, c) => keyFor(ch, cls, off + i, c, mode)), null, i === 2);
+        return [
+            keys(0),
+            keys(1),
+            keys(2, 'grid'),
+            row([
+                specialKey('ABC', 'wide action', () => pageGo(mode, 'main')),
+                sp('Tab', 'wide action', () => insert('  ')),
+                sp('Space', 'space action', () => insert(' ')),
+                sp('◀', 'action', () => moveCaret(-1)),
+                sp('▶', 'action', () => moveCaret(1)),
+                typing ? repeatKey('⌫') : specialKey('⌫', 'wide action inert', () => {}),
+                sp('Enter', 'wide primary', enter)
+            ])
+        ];
+    }
+
+    function showLayout(name) {
+        currentLayout = name;
+        kb.innerHTML = '';
+        (name === 'main' ? buildMain('type') : buildNum('type')).forEach(r => kb.appendChild(r));
+    }
+
+    function setSymLayout(v, save) {
+        symLayout = v === 'one' ? 'one' : 'two';
+        $('seg-two').classList.toggle('active', symLayout === 'two');
+        $('seg-one').classList.toggle('active', symLayout === 'one');
+        if (save !== false) store.set('cn_symlayout', symLayout);
+        if (currentLayout === 'main') showLayout('main');
+    }
+    $('seg-two').addEventListener('click', () => setSymLayout('two'));
+    $('seg-one').addEventListener('click', () => setSymLayout('one'));
+
+    // ---------- Init ----------
+    applyZoom(zoomPct, false);
+    applyKb(kbPct, false);
+    setColors(colors, false);
+    setBg(store.get('cn_bg'), false);
+    rebuildCustom();
+    renderWordList();
+    render();
+    renderList();
+    showLayout('main');
+    setSymLayout(symLayout, false);
+    showView('list');
+})();
+</script>
+</body>
+</html>
